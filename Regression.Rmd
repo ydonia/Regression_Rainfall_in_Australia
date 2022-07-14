@@ -1,0 +1,210 @@
+---
+title: "Regression on Rainfall in Australia"
+author: "Youssef Donia"
+date: "3/27/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Dataset was found through this link: https://www.kaggle.com/datasets/jsphyg/weather-dataset-rattle-package?datasetId=6012&language=R
+
+This is a dataset on movies the weather in Australia. I will be trying to predict how much rainfall occurs in Australia as a result of other variables in the dataset. This is an interesting project, as it would give me more insight to how weather forecasts work. 
+
+## Reading from the Data Set
+```{r}
+df <- read.csv("weatherAUS.csv")
+nrow(df)
+
+head(df)
+```
+
+```{r}
+str(df)
+```
+
+# Cleaning the Data
+Let's first remove columns that will likely not be good predictors, convert columns that need to be converted to factors, and remove any NA values from the dataset. 
+
+I originally created columns that would represent a change in the wind speed, pressure, humidity and temperature, but found little to no correlation between them, so I decided to comment them out. You can find the code below, but it is commented out.
+
+```{r}
+# delete useless columns and change some columns to factors
+df$Location <- NULL
+df$Date <- NULL
+
+# remove NAs: this will be different for every column
+df <- na.omit(df) # this removes a lot of rows. maybe in future consider replacing NAs with mean or 0
+nrow(df)
+
+# create columns for changes in wind speed, pressure, humidity and temp
+#df$WindChange[1:nrow(df)] <- df$WindSpeed3pm - df$WindSpeed9am
+#df$PressureChange[1:nrow(df)] <- df$Pressure3pm - df$Pressure9am
+#df$HumidityChange[1:nrow(df)] <- df$Humidity3pm - df$Humidity9am
+#df$TempChange[1:nrow(df)] <- df$MaxTemp - df$MinTemp
+
+
+# convert RainToday and RainTomorrow columns to numeric
+df$RainToday[df$RainToday == "Yes"] <- TRUE
+df$RainToday[df$RainToday == "No"] <- FALSE
+
+df$RainTomorrow[df$RainTomorrow == "Yes"] <- TRUE
+df$RainTomorrow[df$RainTomorrow == "No"] <- FALSE
+
+# convert to factors
+for (i in 1:ncol(df)){
+    if(is.character(df[1,i])){
+      df[,i] <- factor(df[,i])
+    } # convert to numeric
+    if(!is.numeric(df[1,i])) {
+      df[,i] <- as.integer(df[,i])
+    }
+}
+
+names(df)
+str(df)
+```
+
+# Data Visualization
+Let's plot the relationship between the Rainfall variable (which will be our response) with the other possible predictor variables
+
+```{r}
+par(mfrow=c(1,2))
+plot(df$Rainfall~df$MaxTemp, main="Rainfall vs Max Temp")
+plot(df$Rainfall~df$MinTemp, main="Rainfall vs Min Temp")
+```
+There doesn't seem to be that much of a positive linear relationship between the temperatures and the amount of rainfall, but the graph still informs us that it seems like the most amount of rain seems to occur between 15 and 35 degrees. We also need to keep in mind that while one factor alone may not be a good predictor for rainfall, a combination of two or more factors could be more accurate. For example, a certain temp alone may not make it likely for rainfall, but a certain temp and a high humidity and an increased number of clouds in the sky could make it very likely that alot of rainfall occurs. 
+
+
+Let's look at the relationship between Rainfall and Humidity
+```{r}
+par(mfrow=c(1,2))
+plot(df$Rainfall~df$Humidity9am, main="Rainfall vs Humidity 9am")
+plot(df$Rainfall~df$Humidity3pm, main="Rainfall vs Humidity 3pm")
+```
+As we can see above, Humidity seems to have a positive linear relationship with the amount of Rainfall that occurs. We will learn more about these variables when we try to create a model based off the data. 
+
+# Models
+Let's create some models using three different algorithms to predict our response variable, which is Rainfall. I will be using the Linear Regression, KNN, and Decision Tree algorithms to perform regression on this data. 
+
+## Train and Test 
+Let's divide our data frame into our train and test data.
+
+```{r}
+set.seed(1234)
+
+i <- sample(1:nrow(df), nrow(df)*0.75, replace=FALSE)
+train <- df[i,]
+test <- df[-i,]
+nrow(train) # size of train data
+nrow(test) # size of test data
+```
+
+## Linear Regression
+The first algorithm I will use is Linear Regression. Since I did not see a particularly good correlation between any individual variabls and the amount of rainfall in Australia, I'm going to hope that mixing them together gives me better results as I explained above. Let's make a model using all of the variables (except for the response) as predictors to see the type of results we can get.
+
+```{r}
+lm1 <- lm(Rainfall~., data=train)
+summary(lm1)
+
+mse <- mean(lm1$residuals^2)
+print(mse)
+
+rmse <- sqrt(mse)
+print(rmse)
+```
+
+As we can see, the model is not that great. We only got an R squared statistic of 0.3311, which is very low. Ideally, we would want an R squared statistic of at least 0.8. This could be due to too many predictors, so let's try to remove some that the model claims are not useful.
+
+```{r}
+lm2 <- lm(Rainfall~. - Pressure3pm-Pressure9am-WindDir3pm-WindDir9am-WindGustDir, data=train)
+summary(lm2)
+
+mse2 <- mean(lm2$residuals^2)
+print(mse2)
+
+rmse2 <- sqrt(mse2)
+print(rmse2)
+```
+This model did not seem much better than the first. The R squared is a little lower than for the first model and the standard error was higher. The F statistic was much higher however. To figure out which model is slightly better, we can use the anova function.
+
+```{r}
+anova(lm1, lm2)
+```
+
+The second model is shown to have a small p value, which implies that the model is more significant. There is not much difference between the RSS, so we will go with model 2. This may or may not be a good choice, but the difference between these two models should not be significant and we should get similar results either way.
+
+Now, let's try to accurately predict the amount of rainfall using the test data. I do not have high hopes for this, as the model did not seem promising, but let's see if there is an improvement here.
+
+```{r}
+lm.pred <- predict(lm2, newdata = test)
+lm.cor <- cor(lm.pred, test$Rainfall)
+print(lm.cor)
+
+lm.mse <- mean((lm.pred - test$Rainfall)^2)
+print(lm.mse)
+```
+The predictions are more accurate than I thought. The correlation is almost 0.6, and the mean squared error is less than it was for the model. The moderately high correlation and the decrease in mse suggest that the model was able to generalize decently well to the test data.
+
+## Plot Residuals
+I will plot residuals to see how well the model fit with the data
+```{r}
+par(mfrow=c(2,2))
+plot(lm2)
+```
+These residuals are not very good, indicating that the model did not fit as well to the data as it could. Overall, the model was moderately accurate, but on the weak side. A higher accuracy would be preferable and necessary to accurately predict the amount of rainfall. 
+
+## KNN
+Let's try to use the KNN algorithm and see if we can make a better model. The bar isn't very high, so hopefully we can get a better result.
+
+```{r}
+library(caret)
+
+predictors <- c("MinTemp", "MaxTemp", "Evaporation", "Sunshine", "WindGustSpeed", "WindSpeed9am", "WindSpeed3pm", "Humidity9am", "Humidity3pm", "Cloud9am", "Cloud3pm", "Temp9am", "Temp3pm", "RainToday", "RainTomorrow")
+
+knn1 <- knnreg(train[,predictors], train$Rainfall, k=3)
+knn.pred <- predict(knn1, test[,predictors])
+cor.knn1 <- cor(knn.pred, test$Rainfall)
+mse.knn1 <- mean((knn.pred - test$Rainfall)^2)
+print(paste("cor: ", cor.knn1))
+print(paste("mse: ", mse.knn1))
+```
+
+The performance of the KNN algorithm was much worse than the Linear Regression. The correlation was lower and the mse was higher. This could be because the KNN needed weight for each characteristic. It also executed much more slowly, making the Linear Regression algorithm faster and more accurate. The data also could be scaled to possibly improve the performance of the model, which is something I did not do in this implementation of the algorithm.
+
+## Decision Tree
+Both of the previous algorithms did not perform very well, especially the KNN algorithm. Let's try creating a more accurate model using the Decision Tree algorithm and hope we get better results. 
+
+```{r}
+library(rpart)
+tree1 <- rpart(Rainfall~.- Pressure3pm - Pressure9am - WindDir3pm - 
+    WindDir9am - WindGustDir, method="anova", data=train)
+summary(tree1)
+```
+
+Let's output the correlation and the mse to compare the tree with the other models.
+
+```{r}
+pred.tree <- predict(tree1, newdata=test)
+cor.tree <- cor(pred.tree, test$Rainfall)
+print(paste("cor: ", cor.tree))
+mse.tree <- mean((pred.tree - test$Rainfall))
+print(paste("mse: ", mse.tree))
+```
+
+The Decision Tree actually seemed to do better than both the KNN and the Linear Regression models. It has an correlation of about 0.62 and a 0.04 mse, which is much lower than the mse for the other models. 
+
+Let's plot this tree to get a better understanding of how it works. Granted, the RainToday seems like it would be a good predictor, but due to maybe some issues with the data, even with it the models do not reach a very high accuracy, so I have justified including it as a predictor.
+
+```{r}
+plot(tree1, uniform=TRUE, main="Rainfall Decision Tree using Regression")
+text(tree1, cex=0.5, pretty=0)
+```
+
+# Results Analysis
+The Decision Tree performed best out of the three algorithms I used. Based on what I know, it seems that the data was complex, leading to the decision tree outperforming the linear model. The KNN model was the least accurate out of the three. This could be because the characteristics did not have a weight to them. KNN also seems to perform better with purely quantitative data, and a prominent predictor I used was a factor. This could also be because the k value I inputted was not helping the model. Perhaps an optimal k would help the model be more accurate. Something I could also do in the future is scale the data for the KNN and see if that helps it perform better, but I doubt that it would have performed better to a point where it was usable. 
+
+# What was learned from the data?
+I learned that finding correlations between data without a significant amount of data cleaning can be very hard. If there are any inconsistencies in the data, it can be very hard to make an accurate model. NA values can make a big difference in the correlation of my data. To make my models more accurate, I would have had to perform a lot more data cleaning, and visualize the data more to get a better idea of how to model it. If I spent more time on this project, I believe I would eventually be able to make more accurate predictions for the amount of rainfall. My script did, however, learn from the data that temperature and humidity are big factors in predicting the amount of rainfall that could possibly occur. Even though this information is already known, a more detailed script could possibly find relationships between rainfall and other data that was not considered before.
